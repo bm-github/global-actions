@@ -1,4 +1,4 @@
-name: Generate README with Claude
+name: Generate README with AI
 
 on:
   push:
@@ -23,15 +23,18 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install --upgrade anthropic
+        pip install --upgrade anthropic openai
 
-    - name: Check Anthropic version
+    - name: Check AI library versions
       run: |
-        python -c "import anthropic; print(anthropic.__version__)"
+        python -c "import anthropic, openai; print(f'Anthropic version: {anthropic.__version__}'); print(f'OpenAI version: {openai.__version__}')"
 
     - name: Generate README
       env:
-        AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+        AI_MODEL: ${{ secrets.AI_MODEL }}
       run: |
         python .github/scripts/generate_readme.py
 
