@@ -2,7 +2,8 @@ name: Generate README with AI
 on:
   push:
     branches: [main]
-    paths-ignore: ['**/README.md']
+    paths-ignore:
+      - '.github/**'
   workflow_dispatch:
 jobs:
   generate-readme:
@@ -11,10 +12,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Cache pip packages
         uses: actions/cache@v3
         with:
@@ -22,32 +25,30 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip anthropic openai
           pip freeze > requirements.txt
+
       - name: Check library versions
         run: |
           python -c "import anthropic, openai; print(f'Anthropic: {anthropic.__version__}, OpenAI: {openai.__version__}')"
+
       - name: Get changed files
         id: changed-files
         run: |
-          # Get the list of changed files
           CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ',')
-         
-          # Check if the variable is empty
           if [ -z "$CHANGED_FILES" ]; then
-              echo "files=" >> $GITHUB_OUTPUT  # Set empty value if no files changed
-          else
-              echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT  # Set the list of changed files
+              echo "files=" >> $GITHUB_OUTPUT
+          else:
+              echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT
           fi
+
       - name: Generate README
         id: generate-readme
         run: |
-          # Parse trigger file types from JSON
           TRIGGER_TYPES=$(echo '${{ vars.TRIGGER_FILE_TYPES }}' | jq -r '.[]')
-         
-          # Check if any changed file matches the trigger types
           SHOULD_GENERATE=false
           for FILE in ${{ steps.changed-files.outputs.files }}; do
             if echo "$TRIGGER_TYPES" | grep -q -E "(^|\\s)$(basename "$FILE")(\\s|$)"; then
@@ -55,13 +56,13 @@ jobs:
               break
             fi
           done
-         
           if [ "$SHOULD_GENERATE" = true ]; then
             echo "Generating README..."
             python .github/scripts/generate_readme.py
             echo "readme_generated=true" >> $GITHUB_OUTPUT
-          else
+          else:
             echo "No matching file types found. Skipping README generation."
+            echo "readme_generated=false" >> $GITHUB_OUTPUT
           fi
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -69,6 +70,7 @@ jobs:
           AI_PROVIDER: ${{ vars.AI_PROVIDER }}
           AI_MODEL: ${{ vars.AI_MODEL }}
           FILE_TYPES: ${{ vars.FILE_TYPES }}
+
       - name: Commit and push README if changed
         if: steps.generate-readme.outputs.readme_generated == 'true'
         run: |
@@ -76,4 +78,5 @@ jobs:
           git config user.email github-actions[bot]@users.noreply.github.com
           git checkout -b readme-update
           git add README.md
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update README.md" && git push --set-upstream origin readme-update)
+          git commit -m "Update README.md"
+          git push --set-upstream origin readme-update
