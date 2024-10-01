@@ -87,17 +87,16 @@ def generate_readme():
             print("No files matching the specified types found in the repository.")
             return
 
-        prompt = f"""Based on the following repository content, generate a comprehensive README.md file.
+        prompt = f"""Based on the following repository content and structure, generate a comprehensive README.md file.
         Include sections for Project Description, Installation, Usage, and Contributing.
-        Only include information about file types that are present in the repository content provided.
-        Make sure to accurately reflect the purpose and functionality of the files present.
-        Group related files and their descriptions logically.
-        Provide appropriate explanations for each file type based on their content and purpose.
+        Reflect the purpose and functionality of all file types present in the repository.
+        Include relevant context about the directory structure to provide a high-level view of the project organization.
 
         Repository Content:
         {repo_content}
 
         Please generate the README.md content now:"""
+
 
         generate_readme_func = get_ai_provider()
         readme_content = generate_readme_func(prompt)
