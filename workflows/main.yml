@@ -46,7 +46,7 @@ jobs:
         id: generate-readme
         run: |
           # Parse trigger file types from JSON
-          TRIGGER_TYPES=$(echo '${{ vars.TRIGGER_FILE_TYPES }}' | jq -r 'to_entries | map(.value) | .[]')
+          TRIGGER_TYPES=$(echo '${{ vars.TRIGGER_FILE_TYPES }}' | jq -r '.[]')
           
           # Check if any changed file matches the trigger types
           SHOULD_GENERATE=false
