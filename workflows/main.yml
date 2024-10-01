@@ -39,8 +39,15 @@ jobs:
       - name: Get changed files
         id: changed-files
         run: |
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
-          echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT
+          # Get the list of changed files
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ',')
+          
+          # Check if the variable is empty
+          if [ -z "$CHANGED_FILES" ]; then
+              echo "files=" >> $GITHUB_OUTPUT  # Set empty value if no files changed
+          else
+              echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT  # Set the list of changed files
+          fi
 
       - name: Generate README
         id: generate-readme
