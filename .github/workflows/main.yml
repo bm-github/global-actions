@@ -2,8 +2,7 @@ name: Generate README with AI
 on:
   push:
     branches: [main]
-    paths-ignore: 
-      - '**/README.md'
+    paths-ignore:
       - '.github/**'
   workflow_dispatch:
 jobs:
