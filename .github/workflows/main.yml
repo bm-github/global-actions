@@ -14,37 +14,51 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies and check versions
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
         run: |
           pip install --upgrade pip anthropic openai
+          pip freeze > requirements.txt
+
+      - name: Check library versions
+        run: |
           python -c "import anthropic, openai; print(f'Anthropic: {anthropic.__version__}, OpenAI: {openai.__version__}')"
 
       - name: Get changed files
         id: changed-files
         run: |
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
-          echo "files=${FILES}" >> $GITHUB_OUTPUT
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT
 
       - name: Generate README
         id: generate-readme
         run: |
-          CONDITION=""
-          for i in {1..10}; do
-            VAR_NAME="TRIGGER_FILE_TYPE_$i"
-            if [[ -n "${{ vars[VAR_NAME] }}" ]]; then
-              if [[ -n "$CONDITION" ]]; then CONDITION+=" || "; fi
-              CONDITION+="contains(steps.changed-files.outputs.files, '${{ vars[VAR_NAME] }}')"
+          # Parse trigger file types from JSON
+          TRIGGER_TYPES=$(echo '${{ vars.TRIGGER_FILE_TYPES }}' | jq -r 'to_entries | map(.value) | .[]')
+          
+          # Check if any changed file matches the trigger types
+          SHOULD_GENERATE=false
+          for FILE in ${{ steps.changed-files.outputs.files }}; do
+            if echo "$TRIGGER_TYPES" | grep -q -E "(^|\\s)$(basename "$FILE")(\\s|$)"; then
+              SHOULD_GENERATE=true
+              break
             fi
           done
-          if [[ -z "$CONDITION" ]]; then
-            echo "No trigger file types defined. Skipping README generation."
-            exit 0
-          fi
-          if eval "$CONDITION"; then
+          
+          if [ "$SHOULD_GENERATE" = true ]; then
+            echo "Generating README..."
             python .github/scripts/generate_readme.py
             echo "readme_generated=true" >> $GITHUB_OUTPUT
           else
