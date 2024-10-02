@@ -38,24 +38,34 @@ jobs:
       - name: Get changed files
         id: changed-files
         run: |
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ',')
-          if [ -z "$CHANGED_FILES" ]; then
-              echo "files=" >> $GITHUB_OUTPUT
-          else
-              echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT
-          fi
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')
+          echo "Changed files: $CHANGED_FILES"
+          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+
+      - name: Debug FILE_TYPES
+        run: |
+          echo "FILE_TYPES content:"
+          echo '${{ vars.FILE_TYPES }}' | jq '.'
 
       - name: Generate README
         id: generate-readme
         run: |
-          TRIGGER_TYPES=$(echo '${{ vars.TRIGGER_FILE_TYPES }}' | jq -r '.[]')
+          echo "Changed files: ${{ steps.changed-files.outputs.files }}"
+          FILE_TYPES='${{ vars.FILE_TYPES }}'
+          echo "File types to check:"
+          echo "$FILE_TYPES" | jq -r 'to_entries[] | "\(.key): \(.value)"'
+          
           SHOULD_GENERATE=false
           for FILE in ${{ steps.changed-files.outputs.files }}; do
-            if echo "$TRIGGER_TYPES" | grep -q -E "(^|\\s)$(basename "$FILE")(\\s|$)"; then
+            echo "Checking file: $FILE"
+            FILE_EXT="${FILE##*.}"
+            if echo "$FILE_TYPES" | jq -e --arg ext "$FILE_EXT" '.[] | select(endswith("*." + $ext))' > /dev/null; then
               SHOULD_GENERATE=true
+              echo "Match found for file: $FILE"
               break
             fi
           done
+          
           if [ "$SHOULD_GENERATE" = true ]; then
             echo "Generating README..."
             python .github/scripts/generate_readme.py

@@ -13,7 +13,9 @@ def get_env_var(name: str, default: str = '') -> str:
 def load_file_types() -> Dict[str, str]:
     """Load file types from environment variable."""
     try:
-        return json.loads(get_env_var('FILE_TYPES', '{}'))
+        file_types = json.loads(get_env_var('FILE_TYPES', '{}'))
+        print(f"Loaded file types: {json.dumps(file_types, indent=2)}")
+        return file_types
     except json.JSONDecodeError:
         print("Error: FILE_TYPES environment variable is not valid JSON.", file=sys.stderr)
         return {}
@@ -31,7 +33,9 @@ def scan_repository(file_types: Dict[str, str]) -> str:
     """Scan repository and return content of matched files."""
     repo_content = []
     for file_type, glob_pattern in file_types.items():
+        print(f"Scanning for {file_type} files with pattern: {glob_pattern}")
         files = glob.glob(glob_pattern, recursive=True)
+        print(f"Found {len(files)} {file_type} files: {files}")
         if files:
             repo_content.append(f"\n{file_type}:")
             for file in files:
@@ -87,16 +91,21 @@ def generate_readme():
             print("No files matching the specified types found in the repository.")
             return
 
-        prompt = f"""Based on the following repository content and structure, generate a comprehensive README.md file.
+        print(f"Repository content length: {len(repo_content)} characters")
+        print("First 500 characters of repo_content:")
+        print(repo_content[:500])
+
+        prompt = f"""Based on the following repository content, generate a comprehensive README.md file.
         Include sections for Project Description, Installation, Usage, and Contributing.
-        Reflect the purpose and functionality of all file types present in the repository.
-        Include relevant context about the directory structure to provide a high-level view of the project organization.
+        Only include information about file types that are present in the repository content provided.
+        Make sure to accurately reflect the purpose and functionality of the files present.
+        Group related files and their descriptions logically.
+        Provide appropriate explanations for each file type based on their content and purpose.
 
         Repository Content:
         {repo_content}
 
         Please generate the README.md content now:"""
-
 
         generate_readme_func = get_ai_provider()
         readme_content = generate_readme_func(prompt)
