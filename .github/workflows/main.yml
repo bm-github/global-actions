@@ -2,18 +2,26 @@ name: Generate README with AI
 on:
   push:
     branches:
-      - update-readme
-    paths-ignore:
-      - '.github/**'
+      - 'update-readme'
   workflow_dispatch:
 
 jobs:
-  generate-readme:
+  debug-and-generate-readme:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Debug Trigger
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Branch name: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+
+      - name: List all branches
+        run: git branch -a
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -99,7 +107,7 @@ jobs:
             echo "changes_made=false" >> $GITHUB_OUTPUT
           else
             git commit -m "Update README.md"
-            git push origin update-readme
+            git push origin HEAD:update-readme
             echo "changes_made=true" >> $GITHUB_OUTPUT
           fi
 
