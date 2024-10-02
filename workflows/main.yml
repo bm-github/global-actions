@@ -1,10 +1,12 @@
 name: Generate README with AI
 on:
   push:
-    branches: [main]
+    branches:
+      - update-readme
     paths-ignore:
       - '.github/**'
   workflow_dispatch:
+
 jobs:
   generate-readme:
     runs-on: ubuntu-latest
@@ -38,7 +40,11 @@ jobs:
       - name: Get changed files
         id: changed-files
         run: |
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | tr '\n' ' ')
+          fi
           echo "Changed files: $CHANGED_FILES"
           echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
 
@@ -87,14 +93,13 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
-          git checkout -b readme-update
           git add README.md
           if git diff --staged --quiet; then
             echo "No changes to README.md. Skipping commit and push."
             echo "changes_made=false" >> $GITHUB_OUTPUT
           else
             git commit -m "Update README.md"
-            git push --set-upstream origin readme-update
+            git push origin update-readme
             echo "changes_made=true" >> $GITHUB_OUTPUT
           fi
 
@@ -103,7 +108,7 @@ jobs:
           if [ "${{ steps.generate-readme.outputs.readme_generated }}" == "false" ]; then
             echo "No README generation was performed due to no matching file types."
           elif [ "${{ steps.commit-push.outputs.changes_made }}" == "false" ]; then
-            echo "README was generated, but no changes were detected. No commit or merge was performed."
+            echo "README was generated, but no changes were detected. No commit or push was performed."
           else
-            echo "README was generated, committed, and pushed to the readme-update branch."
+            echo "README was generated, committed, and pushed to the update-readme branch."
           fi
