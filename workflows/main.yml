@@ -41,7 +41,7 @@ jobs:
           CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ',')
           if [ -z "$CHANGED_FILES" ]; then
               echo "files=" >> $GITHUB_OUTPUT
-          else:
+          else
               echo "files=${CHANGED_FILES}" >> $GITHUB_OUTPUT
           fi
 
@@ -60,7 +60,7 @@ jobs:
             echo "Generating README..."
             python .github/scripts/generate_readme.py
             echo "readme_generated=true" >> $GITHUB_OUTPUT
-          else:
+          else
             echo "No matching file types found. Skipping README generation."
             echo "readme_generated=false" >> $GITHUB_OUTPUT
           fi
@@ -72,11 +72,28 @@ jobs:
           FILE_TYPES: ${{ vars.FILE_TYPES }}
 
       - name: Commit and push README if changed
+        id: commit-push
         if: steps.generate-readme.outputs.readme_generated == 'true'
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
           git checkout -b readme-update
           git add README.md
-          git commit -m "Update README.md"
-          git push --set-upstream origin readme-update
+          if git diff --staged --quiet; then
+            echo "No changes to README.md. Skipping commit and push."
+            echo "changes_made=false" >> $GITHUB_OUTPUT
+          else
+            git commit -m "Update README.md"
+            git push --set-upstream origin readme-update
+            echo "changes_made=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Output result
+        run: |
+          if [ "${{ steps.generate-readme.outputs.readme_generated }}" == "false" ]; then
+            echo "No README generation was performed due to no matching file types."
+          elif [ "${{ steps.commit-push.outputs.changes_made }}" == "false" ]; then
+            echo "README was generated, but no changes were detected. No commit or merge was performed."
+          else
+            echo "README was generated, committed, and pushed to the readme-update branch."
+          fi
