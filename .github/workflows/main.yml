@@ -1,4 +1,7 @@
+# Optimized main.yml
+
 name: Generate README with AI
+
 on:
   push:
     branches:
@@ -19,9 +22,6 @@ jobs:
           echo "Event name: ${{ github.event_name }}"
           echo "Branch name: ${{ github.ref }}"
           echo "Actor: ${{ github.actor }}"
-
-      - name: List all branches
-        run: git branch -a
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,44 +56,16 @@ jobs:
           echo "Changed files: $CHANGED_FILES"
           echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
 
-      - name: Debug FILE_TYPES
-        run: |
-          echo "FILE_TYPES content:"
-          echo '${{ vars.FILE_TYPES }}' | jq '.'
-
       - name: Generate README
         id: generate-readme
         run: |
-          echo "Changed files: ${{ steps.changed-files.outputs.files }}"
-          FILE_TYPES='${{ vars.FILE_TYPES }}'
-          echo "File types to check:"
-          echo "$FILE_TYPES" | jq -r 'to_entries[] | "\(.key): \(.value)"'
-          
-          SHOULD_GENERATE=false
-          for FILE in ${{ steps.changed-files.outputs.files }}; do
-            echo "Checking file: $FILE"
-            FILE_EXT="${FILE##*.}"
-            if echo "$FILE_TYPES" | jq -e --arg ext "$FILE_EXT" '.[] | select(endswith("*." + $ext))' > /dev/null; then
-              SHOULD_GENERATE=true
-              echo "Match found for file: $FILE"
-              break
-            fi
-          done
-          
-          if [ "$SHOULD_GENERATE" = true ]; then
-            echo "Generating README..."
-            python .github/scripts/generate_readme.py
-            echo "readme_generated=true" >> $GITHUB_OUTPUT
-          else
-            echo "No matching file types found. Skipping README generation."
-            echo "readme_generated=false" >> $GITHUB_OUTPUT
-          fi
+          python .github/scripts/generate_readme.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI_PROVIDER: ${{ vars.AI_PROVIDER }}
           AI_MODEL: ${{ vars.AI_MODEL }}
-          FILE_TYPES: ${{ vars.FILE_TYPES }}
+          CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
 
       - name: Commit and push README if changed
         id: commit-push
