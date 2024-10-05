@@ -2,22 +2,28 @@ import os
 import sys
 import glob
 import json
-from typing import Dict, Callable
+import logging
+from typing import Dict, Callable, List, Tuple
 import anthropic
 import openai
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_env_var(name: str, default: str = '') -> str:
     """Safely get an environment variable."""
     return os.environ.get(name, default)
 
 def load_file_types() -> Dict[str, str]:
-    """Load file types from environment variable."""
+    """Load file types from configuration file."""
+    config_path = '.github/config/file_types.json'
     try:
-        file_types = json.loads(get_env_var('FILE_TYPES', '{}'))
-        print(f"Loaded file types: {json.dumps(file_types, indent=2)}")
+        with open(config_path, 'r') as f:
+            file_types = json.load(f)
+        logging.info(f"Loaded file types: {json.dumps(file_types, indent=2)}")
         return file_types
-    except json.JSONDecodeError:
-        print("Error: FILE_TYPES environment variable is not valid JSON.", file=sys.stderr)
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        logging.error(f"Error loading file types from {config_path}: {e}")
         return {}
 
 def get_file_contents(file_path: str) -> str:
@@ -26,96 +32,172 @@ def get_file_contents(file_path: str) -> str:
         with open(file_path, 'r') as file:
             return file.read()
     except IOError as e:
-        print(f"Error reading file {file_path}: {e}", file=sys.stderr)
+        logging.error(f"Error reading file {file_path}: {e}")
         return ""
 
-def scan_repository(file_types: Dict[str, str]) -> str:
-    """Scan repository and return content of matched files."""
-    repo_content = []
+def scan_repository(file_types: Dict[str, str]) -> Tuple[str, str]:
+    """Scan repository and return content of all matched files, separated into main and .github sections."""
+    main_content = []
+    github_content = []
+    
     for file_type, glob_pattern in file_types.items():
-        print(f"Scanning for {file_type} files with pattern: {glob_pattern}")
+        logging.info(f"Scanning for {file_type} files with pattern: {glob_pattern}")
         files = glob.glob(glob_pattern, recursive=True)
-        print(f"Found {len(files)} {file_type} files: {files}")
+        logging.info(f"Found {len(files)} {file_type} files")
+        
         if files:
-            repo_content.append(f"\n{file_type}:")
-            for file in files:
-                content = get_file_contents(file)
-                if content:
-                    repo_content.append(f"\n--- {file} ---\n{content}")
-    return "\n".join(repo_content)
+            main_files = [f for f in files if not f.startswith('.github/')]
+            github_files = [f for f in files if f.startswith('.github/')]
+            
+            if main_files:
+                main_content.append(f"\n{file_type}:")
+                for file in main_files:
+                    content = get_file_contents(file)
+                    if content:
+                        main_content.append(f"\n--- {file} ---\n{content}")
+            
+            if github_files:
+                github_content.append(f"\n{file_type}:")
+                for file in github_files:
+                    content = get_file_contents(file)
+                    if content:
+                        github_content.append(f"\n--- {file} ---\n{content}")
+    
+    return "\n".join(main_content), "\n".join(github_content)
+
+def chunk_content(content: str, chunk_size: int = 4000) -> List[str]:
+    """Split content into chunks of specified size."""
+    return [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
 
 def generate_readme_with_anthropic(prompt: str) -> str:
     """Generate README using Anthropic API."""
     client = anthropic.Anthropic(api_key=get_env_var('ANTHROPIC_API_KEY'))
-    message = client.messages.create(
-        model=get_env_var('AI_MODEL'),
-        max_tokens=4000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return message.content[0].text
+    chunks = chunk_content(prompt)
+    full_response = ""
+    for chunk in chunks:
+        try:
+            message = client.messages.create(
+                model=get_env_var('AI_MODEL'),
+                max_tokens=4000,
+                messages=[{"role": "user", "content": chunk}]
+            )
+            full_response += message.content[0].text
+        except anthropic.APIError as e:
+            logging.error(f"Anthropic API error: {e}")
+            raise
+    return full_response
 
 def generate_readme_with_openai(prompt: str) -> str:
     """Generate README using OpenAI API."""
     client = openai.OpenAI(api_key=get_env_var('OPENAI_API_KEY'))
-    response = client.chat.completions.create(
-        model=get_env_var('AI_MODEL'),
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=4000
-    )
-    return response.choices[0].message.content
+    chunks = chunk_content(prompt)
+    full_response = ""
+    for chunk in chunks:
+        try:
+            response = client.chat.completions.create(
+                model=get_env_var('AI_MODEL'),
+                messages=[{"role": "user", "content": chunk}],
+                max_tokens=4000
+            )
+            full_response += response.choices[0].message.content
+        except openai.OpenAIError as e:
+            logging.error(f"OpenAI API error: {e}")
+            raise
+    return full_response
 
 def get_ai_provider() -> Callable[[str], str]:
-    """Get the appropriate AI provider function."""
-    ai_provider = get_env_var('AI_PROVIDER', '').lower()
-    if ai_provider == 'anthropic':
-        if not get_env_var('ANTHROPIC_API_KEY'):
-            raise ValueError("ANTHROPIC_API_KEY is not set")
-        return generate_readme_with_anthropic
-    elif ai_provider == 'openai':
-        if not get_env_var('OPENAI_API_KEY'):
-            raise ValueError("OPENAI_API_KEY is not set")
-        return generate_readme_with_openai
-    else:
-        raise ValueError(f"Unsupported AI provider: {ai_provider}")
+    """Get the appropriate AI provider function with fallback."""
+    primary_provider = get_env_var('AI_PROVIDER', '').lower()
+    fallback_provider = 'openai' if primary_provider == 'anthropic' else 'anthropic'
+    
+    providers = {
+        'anthropic': (generate_readme_with_anthropic, 'ANTHROPIC_API_KEY'),
+        'openai': (generate_readme_with_openai, 'OPENAI_API_KEY')
+    }
+
+    for provider in [primary_provider, fallback_provider]:
+        generate_func, api_key = providers.get(provider, (None, None))
+        if generate_func and get_env_var(api_key):
+            logging.info(f"Using {provider.capitalize()} as the AI provider")
+            return generate_func
+    
+    raise ValueError("No valid AI provider available")
+
+def update_readme_section(existing_content: str, new_content: str, section: str) -> str:
+    """Update a specific section in the existing README."""
+    start_marker = f"## {section}"
+    end_marker = "##"
+    start_index = existing_content.find(start_marker)
+    if start_index == -1:
+        return existing_content + f"\n\n{new_content}"
+    
+    end_index = existing_content.find(end_marker, start_index + len(start_marker))
+    if end_index == -1:
+        end_index = len(existing_content)
+    
+    return (
+        existing_content[:start_index] +
+        new_content +
+        existing_content[end_index:]
+    )
 
 def generate_readme():
     """Main function to generate README."""
     try:
         file_types = load_file_types()
         if not file_types:
-            print("No file types specified. Please set the FILE_TYPES repository variable.")
+            logging.warning("No file types specified. Please set the file_types.json configuration file.")
             return
 
-        repo_content = scan_repository(file_types)
-        if not repo_content:
-            print("No files matching the specified types found in the repository.")
+        main_content, github_content = scan_repository(file_types)
+        if not main_content and not github_content:
+            logging.info("No files matching the specified types found in the repository.")
             return
 
-        print(f"Repository content length: {len(repo_content)} characters")
-        print("First 500 characters of repo_content:")
-        print(repo_content[:500])
+        logging.info(f"Main repository content length: {len(main_content)} characters")
+        logging.info(f".github directory content length: {len(github_content)} characters")
 
-        prompt = f"""Based on the following repository content, generate a comprehensive README.md file.
-        Include sections for Project Description, Installation, Usage, and Contributing.
+        prompt = f"""Based on the following repository content, generate or update the README.md file.
+        Organize the README into two main sections:
+        1. Main Repository: Explain the main project files and structure.
+        2. GitHub Configuration: Describe the files in the .github directory and their purposes.
+
+        For each section, focus on the following subsections: Project Description, Installation, Usage, and Contributing.
         Only include information about file types that are present in the repository content provided.
         Make sure to accurately reflect the purpose and functionality of the files present.
         Group related files and their descriptions logically.
         Provide appropriate explanations for each file type based on their content and purpose.
 
-        Repository Content:
-        {repo_content}
+        Main Repository Content:
+        {main_content}
 
-        Please generate the README.md content now:"""
+        GitHub Configuration Content:
+        {github_content}
+
+        Please generate the README.md content now, clearly separating the Main Repository and GitHub Configuration sections:"""
 
         generate_readme_func = get_ai_provider()
-        readme_content = generate_readme_func(prompt)
+        new_readme_content = generate_readme_func(prompt)
+
+        # Read existing README if it exists
+        try:
+            with open('README.md', 'r') as f:
+                existing_readme = f.read()
+        except FileNotFoundError:
+            existing_readme = ""
+
+        # Update specific sections
+        for section in ["Main Repository", "GitHub Configuration"]:
+            existing_readme = update_readme_section(existing_readme, new_readme_content, section)
 
         with open('README.md', 'w') as f:
-            f.write(readme_content)
+            f.write(existing_readme)
 
-        print(f"README.md generated successfully using {get_env_var('AI_PROVIDER').capitalize()} ({get_env_var('AI_MODEL')}).")
+        logging.info(f"README.md updated successfully using {get_env_var('AI_PROVIDER').capitalize()} ({get_env_var('AI_MODEL')}).")
+        print("readme_generated=true")
     except Exception as e:
-        print(f"Error generating README: {e}", file=sys.stderr)
+        logging.error(f"Error generating README: {e}")
+        print("readme_generated=false")
         sys.exit(1)
 
 if __name__ == "__main__":

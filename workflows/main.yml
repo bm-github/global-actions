@@ -1,109 +1,40 @@
 name: Generate README with AI
+
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - '.github/**'
+    branches:
+      - 'readme-update'
   workflow_dispatch:
+
 jobs:
   generate-readme:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
           pip install --upgrade pip anthropic openai
           pip freeze > requirements.txt
 
-      - name: Check library versions
-        run: |
-          python -c "import anthropic, openai; print(f'Anthropic: {anthropic.__version__}, OpenAI: {openai.__version__}')"
-
-      - name: Get changed files
-        id: changed-files
-        run: |
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')
-          echo "Changed files: $CHANGED_FILES"
-          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
-
-      - name: Debug FILE_TYPES
-        run: |
-          echo "FILE_TYPES content:"
-          echo '${{ vars.FILE_TYPES }}' | jq '.'
-
       - name: Generate README
-        id: generate-readme
-        run: |
-          echo "Changed files: ${{ steps.changed-files.outputs.files }}"
-          FILE_TYPES='${{ vars.FILE_TYPES }}'
-          echo "File types to check:"
-          echo "$FILE_TYPES" | jq -r 'to_entries[] | "\(.key): \(.value)"'
-          
-          SHOULD_GENERATE=false
-          for FILE in ${{ steps.changed-files.outputs.files }}; do
-            echo "Checking file: $FILE"
-            FILE_EXT="${FILE##*.}"
-            if echo "$FILE_TYPES" | jq -e --arg ext "$FILE_EXT" '.[] | select(endswith("*." + $ext))' > /dev/null; then
-              SHOULD_GENERATE=true
-              echo "Match found for file: $FILE"
-              break
-            fi
-          done
-          
-          if [ "$SHOULD_GENERATE" = true ]; then
-            echo "Generating README..."
-            python .github/scripts/generate_readme.py
-            echo "readme_generated=true" >> $GITHUB_OUTPUT
-          else
-            echo "No matching file types found. Skipping README generation."
-            echo "readme_generated=false" >> $GITHUB_OUTPUT
-          fi
+        run: python .github/scripts/generate_readme.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI_PROVIDER: ${{ vars.AI_PROVIDER }}
           AI_MODEL: ${{ vars.AI_MODEL }}
-          FILE_TYPES: ${{ vars.FILE_TYPES }}
 
-      - name: Commit and push README if changed
-        id: commit-push
-        if: steps.generate-readme.outputs.readme_generated == 'true'
+      - name: Commit and push README
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
-          git checkout -b readme-update
           git add README.md
-          if git diff --staged --quiet; then
-            echo "No changes to README.md. Skipping commit and push."
-            echo "changes_made=false" >> $GITHUB_OUTPUT
-          else
-            git commit -m "Update README.md"
-            git push --set-upstream origin readme-update
-            echo "changes_made=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Output result
-        run: |
-          if [ "${{ steps.generate-readme.outputs.readme_generated }}" == "false" ]; then
-            echo "No README generation was performed due to no matching file types."
-          elif [ "${{ steps.commit-push.outputs.changes_made }}" == "false" ]; then
-            echo "README was generated, but no changes were detected. No commit or merge was performed."
-          else
-            echo "README was generated, committed, and pushed to the readme-update branch."
-          fi
+          git commit -m "Update README.md" || echo "No changes to commit"
+          git push origin HEAD:readme-update
